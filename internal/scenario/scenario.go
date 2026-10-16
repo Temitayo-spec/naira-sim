@@ -30,6 +30,7 @@ type Scenario struct {
 type Webhook struct {
 	URL    string `json:"url"`
 	Secret string `json:"secret"`
+	Format string `json:"format"` // "sim", or "paystack" for Paystack's events and signature (S34)
 }
 
 type Bank struct {
@@ -169,6 +170,13 @@ func (sc *Scenario) fill() error {
 	if sc.Webhook.Secret == "" {
 		sc.Webhook.Secret = "whsec_test"
 	}
+	switch sc.Webhook.Format {
+	case "":
+		sc.Webhook.Format = "sim"
+	case "sim", "paystack":
+	default:
+		return fmt.Errorf(`scenario: webhook.format must be "sim" or "paystack", not %q`, sc.Webhook.Format)
+	}
 	if sc.Banks == nil {
 		sc.Banks = append([]Bank(nil), DefaultBanks...)
 	}
@@ -202,6 +210,18 @@ func (sc *Scenario) fill() error {
 		if err := sc.Rules[i].Fill(); err != nil {
 			return fmt.Errorf("scenario: rule %d: %w", i+1, err)
 		}
+		if err := sc.Rules[i].Allowed(sc.Webhook.Format); err != nil {
+			return fmt.Errorf("scenario: rule %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+// Allowed says whether a rule can run with a webhook format. Paystack never
+// sends a pending event, so out_of_order_webhooks has nothing true to send (S34).
+func (r Rule) Allowed(format string) error {
+	if r.Type == OutOfOrderWebhooks && format == "paystack" {
+		return errors.New(`out_of_order_webhooks sends a transfer.pending event, which Paystack never sends; it can't run with webhook format "paystack"`)
 	}
 	return nil
 }

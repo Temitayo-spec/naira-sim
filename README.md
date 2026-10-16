@@ -2,15 +2,18 @@
 
 A stand-in for a Nigerian payments provider that misbehaves on purpose. Point your backend at it instead of the real provider, switch on a failure (a transfer stuck in pending, a webhook sent three times, a reversal two days later) and see what your app does, before real money finds out.
 
-It never moves real money and never connects to a bank. Its banks are made up, and it doesn't pretend to be any provider: its API is a neutral shape, described in [`spec/sim-v1.md`](spec/sim-v1.md).
+It never moves real money and never connects to a bank or a provider. Its banks are made up. It speaks two APIs, both described in [`spec/sim-v1.md`](spec/sim-v1.md):
+
+- **Paystack's transfer API.** If your backend uses Paystack for payouts, point its Paystack base URL at naira-sim and use `sk_test_sim` as the key. Nothing else changes. naira-sim isn't Paystack and isn't connected to it; it answers in the shapes Paystack documents.
+- **A neutral API** at `/v1`, for anything else.
 
 ## Quickstart
 
 ```bash
-go run ./cmd/nairasim
+docker run -p 7070:7070 ghcr.io/temitayo-spec/naira-sim
 ```
 
-Or with Docker: `docker build -t naira-sim . && docker run -p 7070:7070 naira-sim`.
+Or from the code: `go run ./cmd/nairasim`.
 
 Send a transfer:
 
@@ -34,6 +37,24 @@ It's `successful` now. Switch a failure on and send another:
 ```bash
 go run ./cmd/simctl rule add stuck_pending --hold 6h --outcome failed
 ```
+
+## Using it with Paystack
+
+Point your Paystack client at naira-sim, and ask for Paystack-format webhooks in the scenario:
+
+```bash
+PAYSTACK_BASE_URL=http://localhost:7070 PAYSTACK_SECRET_KEY=sk_test_sim npm test
+```
+
+```json
+{ "webhook": { "url": "http://localhost:3000/webhooks/paystack", "format": "paystack" } }
+```
+
+Recipients, transfers, verify, the bank list, account resolve and balance all work, and webhooks arrive as `transfer.success`, `transfer.failed` and `transfer.reversed`, signed with `X-Paystack-Signature` (HMAC-SHA512 with your secret key), as Paystack sends them. References must meet Paystack's rule: 16 to 50 lowercase letters, digits, `-` or `_`.
+
+Every failure below works with Paystack's API except two. `out_of_order_webhooks` is refused, because Paystack never sends a pending event. `settlement_mismatch` changes only `/v1`'s settlement report, which Paystack's API has no equivalent of.
+
+[`examples/paystack-backend`](examples/paystack-backend) is a payout service written for Paystack, with nothing naira-sim-specific in it, and tested against naira-sim.
 
 ## The failures
 
@@ -60,7 +81,8 @@ Each one can apply to every transfer, to one bank or account, to references with
 [`examples/node-backend`](examples/node-backend) is a small payout service with one test per failure. Each defence in it is marked with the failure it handles, so it doubles as a checklist for your own backend. Run naira-sim, then:
 
 ```bash
-cd examples/node-backend && node --test
+(cd examples/node-backend && node --test)
+(cd examples/paystack-backend && node --test)
 ```
 
 ## The dashboard

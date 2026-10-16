@@ -24,6 +24,10 @@ type harness struct {
 }
 
 func newHarness(t *testing.T, rules string) *harness {
+	return newHarnessFormat(t, "sim", rules)
+}
+
+func newHarnessFormat(t *testing.T, format, rules string) *harness {
 	h := &harness{t: t}
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -33,7 +37,7 @@ func newHarness(t *testing.T, rules string) *harness {
 		h.mu.Unlock()
 	}))
 	t.Cleanup(receiver.Close)
-	sc, err := scenario.Parse([]byte(`{"start":"2026-10-16T09:00:00Z","webhook":{"url":"` + receiver.URL + `"},"rules":` + rules + `}`))
+	sc, err := scenario.Parse([]byte(`{"start":"2026-10-16T09:00:00Z","webhook":{"url":"` + receiver.URL + `","format":"` + format + `"},"rules":` + rules + `}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,9 +50,19 @@ func newHarness(t *testing.T, rules string) *harness {
 
 func (h *harness) do(method, path, body string, auth bool) (int, map[string]any) {
 	h.t.Helper()
-	req, _ := http.NewRequest(method, h.sim.URL+path, bytes.NewBufferString(body))
+	key := ""
 	if auth {
-		req.Header.Set("Authorization", "Bearer sk_test_sim")
+		key = "sk_test_sim"
+	}
+	return h.doAs(method, path, body, key)
+}
+
+// doAs sends a request with key as the secret key, or with no key if it's empty.
+func (h *harness) doAs(method, path, body, key string) (int, map[string]any) {
+	h.t.Helper()
+	req, _ := http.NewRequest(method, h.sim.URL+path, bytes.NewBufferString(body))
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

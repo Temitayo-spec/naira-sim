@@ -1,0 +1,8 @@
+{
+  "name": "naira-sim-example-paystack-backend",
+  "private": true,
+  "type": "module",
+  "description": "A payout service written for Paystack's transfer API, tested against naira-sim by changing only its base URL",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" }
+}

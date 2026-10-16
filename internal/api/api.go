@@ -208,6 +208,8 @@ func New(s *sim.Sim) http.Handler {
 		writeJSON(w, 200, map[string]any{"deliveries": s.Deliveries()})
 	})
 
+	registerPaystack(mux, s)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &sim.Error{Status: 404, Code: "not_found", Message: "no such endpoint; see spec/sim-v1.md"})
 	})

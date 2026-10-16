@@ -108,6 +108,9 @@ simulator records an event and sends it to the scenario's webhook URL:
 Types: `transfer.successful`, `transfer.failed`, `transfer.reversed`, and
 `transfer.pending` (sent only by the out-of-order failure, S22).
 
+These are the `"sim"` format's webhooks, the default. A scenario can ask for
+Paystack's instead (S34).
+
 **S13.** Every webhook carries `X-Sim-Signature: <hex HMAC-SHA256 of the raw
 body, keyed with the webhook secret>` and `X-Sim-Event-Id: <event id>`.
 
@@ -179,7 +182,7 @@ seed, in the order enquiries arrive.
   "balance": 100000000,
   "latency": "2s",
   "secret_key": "sk_test_sim",
-  "webhook": { "url": "http://localhost:3000/webhooks", "secret": "whsec_test" },
+  "webhook": { "url": "http://localhost:3000/webhooks", "secret": "whsec_test", "format": "sim" },
   "banks": [{ "code": "990001", "name": "Sandbox Bank One" }],
   "accounts": [{ "bank_code": "990001", "account_number": "0123456789", "name": "Ada Obi" }],
   "rules": [{ "type": "stuck_pending", "match": { "bank_code": "990001" }, "rate": 0.2, "params": { "hold": "6h" } }]
@@ -226,3 +229,77 @@ only where your tests can reach it, never on the open internet.
 **S29.** `POST /_sim/clock/advance` is refused (409 `clock_not_manual`) in real
 mode. In manual mode it answers only after everything due has run, so a test
 can check the result straight away.
+
+## 8. Paystack's transfer API
+
+naira-sim also speaks Paystack's transfer API, so a backend built on it can be
+tested by changing only its base URL and key. It is not Paystack and is not
+connected to Paystack. The shapes follow Paystack's public documentation;
+where the documentation shows no error message, the words are naira-sim's.
+
+**S30.** Served at the root, next to `/v1`: point a Paystack client's base URL
+(normally `https://api.paystack.co`) at naira-sim, and use the scenario's
+`secret_key` as the Paystack secret key. Every answer is Paystack's envelope:
+`{"status": true, "message", "data"}`, plus `meta` for lists, or
+`{"status": false, "message"}`. A request without a key gets 401 "No
+Authorization header was found"; a wrong key, 401 "Invalid key". Request
+bodies are read leniently: fields naira-sim doesn't use are ignored, and
+`amount` may be a number or a string of digits.
+
+| Request | Does |
+| --- | --- |
+| `GET /bank` | The scenario's banks, in Paystack's bank shape |
+| `GET /bank/resolve?account_number&bank_code` | A name enquiry (S35) |
+| `GET /balance` | `[{"currency": "NGN", "balance": <kobo>}]` |
+| `POST /transferrecipient` | Creates a recipient (S31) |
+| `GET /transferrecipient/{id_or_code}` | Fetches one |
+| `POST /transfer` | Initiates a transfer (S32, S33) |
+| `GET /transfer` | Lists transfers, newest first; `perPage` (50) and `page` (1) |
+| `GET /transfer/{id_or_code}` | Fetches one |
+| `GET /transfer/verify/{reference}` | Fetches one by reference |
+
+**S31.** `POST /transferrecipient` takes `type` (only `"nuban"`), `name`,
+`account_number`, `bank_code`, and optionally `description` and `currency`
+(only `"NGN"`). A new recipient is checked with a name enquiry, so
+`name_enquiry_failure` applies, and `details.account_name` is the name the
+bank gave, which may differ from `name`. An account that can't be resolved
+gets 400 "Cannot resolve account". As at Paystack, an account that already has
+a recipient gets that recipient back. Codes are `RCP_sim` and nine digits; IDs
+are the same number. Every transfer has a recipient, including those sent
+through `/v1`.
+
+**S32.** `POST /transfer` takes `source` (`"balance"`), `amount` in kobo,
+`recipient` (a recipient code), `reference`, `reason` (the narration) and
+optionally `currency` (`"NGN"`). It answers 200 "Transfer has been queued"
+with the transfer, its `recipient` and `integration` as IDs; fetch, verify
+and list show the recipient as an object. Statuses are Paystack's words:
+`pending`, `success`, `failed`, `reversed`. Codes are `TRF_sim` and nine
+digits; the ID is the same number. `transferred_at` is when it settled.
+An unknown recipient gets Paystack's 400 `invalid_transfer_recipient`; too
+little balance, 400 "Your balance is not enough to fulfil this request".
+`timeout_then_success` answers 504 with `"status": false` (S21).
+
+**S33.** A `reference` must be 16 to 50 lowercase letters, digits, `-` or
+`_`, as Paystack requires; anything else gets 400. The same request with the
+same reference again is answered with the existing transfer and moves no
+money; the same reference with a different request gets 400 "Duplicate
+reference(s) found". A transfer sent without a reference gets one made up,
+`sim_generated_` and six digits, and can't be matched on a retry.
+
+**S34.** With `"webhook": {"format": "paystack"}`, webhooks are Paystack's:
+`{"event", "data"}`, the events `transfer.success`, `transfer.failed` and
+`transfer.reversed`, `data` the transfer with the recipient and integration
+as objects, signed with `X-Paystack-Signature: <hex HMAC-SHA512 of the raw
+body, keyed with the scenario's secret_key>`, and no `X-Sim-` headers.
+Paystack's events carry no ID, so a duplicate (S19) is recognised by its event
+and transfer. Retries follow S14. Paystack never sends a pending event, so
+`out_of_order_webhooks` is refused in this format, both in a scenario and from
+the control API. The format changes only webhooks: `/v1` and the Paystack
+routes both work either way.
+
+**S35.** `GET /bank/resolve` answers 200 "Account number resolved" with
+`{"account_number", "account_name"}`. An unknown bank or account, a malformed
+number, and `name_enquiry_failure`'s `"error"` mode all get 422 "Could not
+resolve account name. Check parameters or try again.": Paystack gives the
+same answer whatever the reason. `"different_name"` mode answers someone
+else's name, as in S23.

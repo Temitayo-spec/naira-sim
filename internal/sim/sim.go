@@ -129,6 +129,10 @@ type Sim struct {
 	events     []Event
 	deliveries []Delivery
 	nextRule   int
+
+	recipients  []*Recipient
+	recipientAt map[string]*Recipient // by bank code + "/" + account number
+	autoRefs    int
 }
 
 // New makes a simulator running sc, sending webhooks with sender.
@@ -163,6 +167,7 @@ func (s *Sim) Load(sc scenario.Scenario) {
 	}
 	s.transfers, s.events, s.deliveries = nil, nil, nil
 	s.byID, s.byRef = map[string]*Transfer{}, map[string]*Transfer{}
+	s.recipients, s.recipientAt, s.autoRefs = nil, map[string]*Recipient{}, 0
 	s.nextRule = 0
 	for _, r := range sc.Rules {
 		s.addRuleLocked(r)
@@ -249,6 +254,10 @@ var (
 func (s *Sim) NameEnquiry(bankCode, accountNumber string) (scenario.Account, *Error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.nameEnquiryLocked(bankCode, accountNumber)
+}
+
+func (s *Sim) nameEnquiryLocked(bankCode, accountNumber string) (scenario.Account, *Error) {
 	if !accountPattern.MatchString(accountNumber) {
 		return scenario.Account{}, fail(400, "invalid_request", "account_number must be 10 digits")
 	}
@@ -320,6 +329,7 @@ func (s *Sim) CreateTransfer(req TransferRequest) (t Transfer, created, timedOut
 	}
 
 	now := s.clk.Now()
+	s.recipientLocked(req.BankCode, req.AccountNumber, now)
 	tr := &Transfer{
 		ID:            fmt.Sprintf("trf_%06d", len(s.transfers)+1),
 		Reference:     req.Reference,
@@ -477,16 +487,12 @@ func (s *Sim) deliver(index, copy, attempt, gen int) {
 		return
 	}
 	ev := s.events[index]
-	url, secret, sender, clk := s.sc.Webhook.URL, s.sc.Webhook.Secret, s.sender, s.clk
+	url, sender, clk := s.sc.Webhook.URL, s.sender, s.clk
 	at := clk.Now()
+	body, headers := s.webhookLocked(ev)
 	s.mu.Unlock()
 
-	body, _ := json.Marshal(ev) // an Event holds only strings, numbers and times
-	status, err := sender.Send(url, body, map[string]string{
-		"Content-Type":    "application/json",
-		"X-Sim-Signature": Sign(secret, body),
-		"X-Sim-Event-Id":  ev.ID,
-	})
+	status, err := sender.Send(url, body, headers)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -501,6 +507,23 @@ func (s *Sim) deliver(index, copy, attempt, gen int) {
 	if (err != nil || status < 200 || status > 299) && attempt <= len(retryAfter) {
 		next := attempt + 1
 		clk.At(at.Add(retryAfter[attempt-1]), func() { s.deliver(index, copy, next, gen) })
+	}
+}
+
+// webhookLocked is an event's body and headers in the scenario's format (S12, S34).
+func (s *Sim) webhookLocked(ev Event) ([]byte, map[string]string) {
+	if s.sc.Webhook.Format == "paystack" {
+		body, _ := json.Marshal(PaystackEvent{Event: paystackEventName(ev.Type), Data: s.paystackTransferLocked(ev.Data, true)})
+		return body, map[string]string{
+			"Content-Type":         "application/json",
+			"X-Paystack-Signature": SignPaystack(s.sc.SecretKey, body),
+		}
+	}
+	body, _ := json.Marshal(ev) // an Event holds only strings, numbers and times
+	return body, map[string]string{
+		"Content-Type":    "application/json",
+		"X-Sim-Signature": Sign(s.sc.Webhook.Secret, body),
+		"X-Sim-Event-Id":  ev.ID,
 	}
 }
 
@@ -605,6 +628,9 @@ func (s *Sim) AddRule(r scenario.Rule) (scenario.Rule, *Error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := r.Allowed(s.sc.Webhook.Format); err != nil {
+		return scenario.Rule{}, fail(400, "invalid_rule", "%s", err.Error())
+	}
 	return s.addRuleLocked(r), nil
 }
 
