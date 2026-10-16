@@ -1,0 +1,14 @@
+{
+  "seed": 7,
+  "clock": "manual",
+  "start": "2026-10-16T09:00:00Z",
+  "webhook": { "url": "http://localhost:3000/webhooks" },
+  "rules": [
+    { "type": "bank_delay", "match": { "bank_code": "990002" }, "params": { "delay": "45m" } },
+    { "type": "stuck_pending", "rate": 0.1, "params": { "hold": "6h" } },
+    { "type": "duplicate_webhook", "rate": 0.2, "params": { "times": 2, "gap": "30s" } },
+    { "type": "late_reversal", "rate": 0.05, "params": { "after": "48h" } },
+    { "type": "timeout_then_success", "rate": 0.05 },
+    { "type": "missing_webhook", "rate": 0.05 }
+  ]
+}

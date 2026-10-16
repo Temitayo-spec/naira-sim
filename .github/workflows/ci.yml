@@ -1,0 +1,30 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false # no outside packages
+      - run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+  example:
+    # The example backend's tests, against a real naira-sim.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: go build -o nairasim ./cmd/nairasim
+      - run: ./nairasim & sleep 1
+      - run: node --test
+        working-directory: examples/node-backend

@@ -1,0 +1,8 @@
+{
+  "name": "naira-sim-example-backend",
+  "private": true,
+  "type": "module",
+  "description": "A small payout backend that survives every failure naira-sim can simulate",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" }
+}
