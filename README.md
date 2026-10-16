@@ -85,6 +85,31 @@ Each one can apply to every transfer, to one bank or account, to references with
 (cd examples/paystack-backend && node --test)
 ```
 
+## In CI
+
+On GitHub Actions, run naira-sim as a service container next to your tests:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      naira-sim:
+        image: ghcr.io/temitayo-spec/naira-sim:0.1.0
+        ports: ["7070:7070"]
+        options: --add-host=host.docker.internal:host-gateway
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci && npm test
+        env:
+          PAYSTACK_BASE_URL: http://localhost:7070
+          PAYSTACK_SECRET_KEY: sk_test_sim
+```
+
+Your tests reach naira-sim at `localhost:7070`. For webhooks, naira-sim has to reach your tests, and from inside its container `localhost` is itself. So give scenarios a webhook URL on `host.docker.internal` (that's what the `--add-host` line is for), and have your webhook server listen on `0.0.0.0`, not `127.0.0.1`. naira-sim's own CI runs [`examples/paystack-backend`](examples/paystack-backend) this way, with `WEBHOOK_HOST=host.docker.internal`.
+
+Pin a version, as above, so a new release can't change your tests under you.
+
 ## The dashboard
 
 Open `http://localhost:7070/_sim/` while naira-sim runs. It shows the clock, the wallet, every transfer, event and webhook attempt, updated each second, and lets you move the clock and switch failures on and off. It reads the same control API as `simctl` and loads nothing from anywhere else.

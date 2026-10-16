@@ -30,10 +30,30 @@ jobs:
         working-directory: examples/node-backend
       - run: node --test
         working-directory: examples/paystack-backend
+  service:
+    # The README's CI recipe, exactly as a team would use it: the published
+    # image as a service container, and a Paystack backend's tests against it.
+    runs-on: ubuntu-latest
+    services:
+      naira-sim:
+        image: ghcr.io/temitayo-spec/naira-sim:latest
+        ports: ["7070:7070"]
+        options: --add-host=host.docker.internal:host-gateway
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: node --test
+        working-directory: examples/paystack-backend
+        env:
+          SIM_URL: http://localhost:7070
+          WEBHOOK_HOST: host.docker.internal
   image:
-    # Publishes ghcr.io/temitayo-spec/naira-sim from main, once the tests pass:
-    # latest, and the commit's short SHA. amd64 and arm64.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Publishes ghcr.io/temitayo-spec/naira-sim once the tests pass: from main
+    # as latest and the commit's short SHA, from a v* tag as its version
+    # (0.1.0 and 0.1). amd64 and arm64.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [go, example]
     runs-on: ubuntu-latest
     permissions:
@@ -52,7 +72,9 @@ jobs:
         with:
           images: ghcr.io/temitayo-spec/naira-sim
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha
       - uses: docker/build-push-action@v7
         with:

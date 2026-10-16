@@ -2,7 +2,9 @@
 // naira-sim's address as its Paystack base URL and naira-sim's secret key as
 // its Paystack key; nothing else changes.
 //
-// Needs naira-sim running: SIM_URL (default http://localhost:7070).
+// Needs naira-sim running: SIM_URL (default http://localhost:7070). If
+// naira-sim runs in a container, WEBHOOK_HOST is how it reaches this machine,
+// such as host.docker.internal.
 
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
@@ -10,6 +12,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { Payouts } from './payouts.js';
 
 const SIM = process.env.SIM_URL ?? 'http://localhost:7070';
+const WEBHOOK_HOST = process.env.WEBHOOK_HOST ?? '127.0.0.1';
 const ADA = { bankCode: '990001', accountNumber: '0123456789', expectedName: 'Ada Obi' };
 const TUNDE = { bankCode: '990002', accountNumber: '1234567890', expectedName: 'Tunde Bakare' };
 
@@ -20,8 +23,10 @@ let webhookUrl;
 before(async () => {
   payouts = new Payouts({ baseUrl: SIM, secretKey: 'sk_test_sim' });
   server = payouts.server();
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  webhookUrl = `http://127.0.0.1:${server.address().port}/webhooks/paystack`;
+  // Listen beyond this machine only when a container has to reach us.
+  const listenOn = WEBHOOK_HOST === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
+  await new Promise((resolve) => server.listen(0, listenOn, resolve));
+  webhookUrl = `http://${WEBHOOK_HOST}:${server.address().port}/webhooks/paystack`;
 });
 
 after(() => server.close());
