@@ -6,6 +6,7 @@ package api
 import (
 	"bytes"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,6 +19,11 @@ import (
 
 // maxBody caps a request body; scenarios are the biggest thing sent.
 const maxBody = 1 << 20
+
+// The dashboard: one page that reads the control API (milestone 4).
+//
+//go:embed dashboard.html
+var dashboard []byte
 
 // New returns the handler for both APIs.
 func New(s *sim.Sim) http.Handler {
@@ -111,6 +117,18 @@ func New(s *sim.Sim) http.Handler {
 	})
 
 	// --- control API ---
+
+	mux.HandleFunc("GET /_sim/{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// The page talks only to this server, and loads nothing from anywhere else.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		w.Write(dashboard)
+	})
+
+	mux.HandleFunc("GET /_sim", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/_sim/", http.StatusFound)
+	})
 
 	mux.HandleFunc("GET /_sim/state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.State())

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -166,5 +167,25 @@ func TestControlAPI(t *testing.T) {
 	}
 	if code, body := h.do("POST", "/_sim/scenario", `{"clock":"slow"}`, false); code != 400 {
 		t.Errorf("bad scenario: %d %v", code, body)
+	}
+}
+
+func TestDashboard(t *testing.T) {
+	h := newHarness(t, `[]`)
+	res, err := http.Get(h.sim.URL + "/_sim/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") || !bytes.Contains(body, []byte("This is a simulator")) {
+		t.Errorf("dashboard %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(res.Header.Get("Content-Security-Policy"), "connect-src 'self'") {
+		t.Error("the dashboard should only talk to this server")
+	}
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if r2, _ := noFollow.Get(h.sim.URL + "/_sim"); r2.StatusCode != 302 || r2.Header.Get("Location") != "/_sim/" {
+		t.Errorf("/_sim should redirect to /_sim/: %d", r2.StatusCode)
 	}
 }

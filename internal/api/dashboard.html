@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>naira-sim</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #16181d; --muted: #5e646e; --line: #e3e3df;
+    --accent: #1d6b4f; --accent-text: #ffffff; --warn-bg: #fff4d6; --warn-text: #6b4e00;
+    --ok: #1d6b4f; --bad: #b42318; --wait: #8a6100; --rev: #6941c6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214; --panel: #1a1c1f; --text: #f1f2f4; --muted: #a6acb6; --line: #2c2f34;
+      --accent: #3fb68b; --accent-text: #0d1f17; --warn-bg: #3a2f10; --warn-text: #f5d37a;
+      --ok: #4cc497; --bad: #f97066; --wait: #e9b949; --rev: #b692f6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; padding: 16px 24px 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  h2 { margin: 0 0 10px; font-size: 15px; }
+  .banner { margin: 0 24px 16px; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-text); }
+  main { padding: 0 24px 32px; display: grid; gap: 16px; }
+  .row { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .big { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+  form { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: end; }
+  form label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; font-size: 12px; }
+  .successful { color: var(--ok); } .failed { color: var(--bad); } .pending { color: var(--wait); } .reversed { color: var(--rev); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .error { color: var(--bad); min-height: 1.4em; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>naira-sim</h1>
+  <span class="muted" id="updated">connecting…</span>
+</header>
+<p class="banner"><strong>This is a simulator.</strong> No real money moves, no bank is connected, and every bank and account here is made up.</p>
+<main>
+  <div class="row">
+    <div class="panel"><div class="label">Clock</div><div class="big" id="now">…</div><div class="muted" id="mode"></div></div>
+    <div class="panel"><div class="label">Wallet</div><div class="big" id="balance">…</div></div>
+    <div class="panel"><div class="label">Transfers · events</div><div class="big" id="counts">…</div><div class="muted" id="scheduled"></div></div>
+  </div>
+
+  <section class="panel">
+    <h2>Move the clock</h2>
+    <div class="controls">
+      <button data-advance="10s">+10s</button>
+      <button data-advance="1m">+1 minute</button>
+      <button data-advance="1h">+1 hour</button>
+      <button data-advance="6h">+6 hours</button>
+      <button data-advance="24h">+1 day</button>
+      <button data-advance="48h">+2 days</button>
+      <button id="reset">Reset scenario</button>
+    </div>
+    <p class="error" id="clock-error"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Failures switched on</h2>
+    <div class="scroll"><table><thead><tr><th>Rule</th><th>Type</th><th>Applies to</th><th>Rate</th><th>Settings</th><th></th></tr></thead><tbody id="rules"></tbody></table></div>
+    <h2 style="margin-top:16px">Switch one on</h2>
+    <form id="add-rule">
+      <label>Type<select name="type" required></select></label>
+      <label>Bank code<input name="bank_code" placeholder="any"></label>
+      <label>Account number<input name="account_number" placeholder="any"></label>
+      <label>Reference prefix<input name="reference_prefix" placeholder="any"></label>
+      <label>Rate (0 to 1)<input name="rate" type="number" min="0.01" max="1" step="0.01" placeholder="1"></label>
+      <label>Settings (JSON)<input name="params" placeholder='{"hold":"6h"}'></label>
+      <button class="primary" type="submit">Switch on</button>
+    </form>
+    <p class="error" id="rule-error"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Transfers</h2>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Reference</th><th>Amount</th><th>To</th><th>Status</th><th>Reason</th><th>Updated</th></tr></thead><tbody id="transfers"></tbody></table></div>
+  </section>
+
+  <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))">
+    <section class="panel">
+      <h2>Events</h2>
+      <div class="scroll"><table><thead><tr><th>Event</th><th>Type</th><th>Reference</th><th>Dated</th></tr></thead><tbody id="events"></tbody></table></div>
+    </section>
+    <section class="panel">
+      <h2>Webhook attempts</h2>
+      <div class="scroll"><table><thead><tr><th>Event</th><th>Attempt</th><th>Copy</th><th>At</th><th>Answer</th></tr></thead><tbody id="deliveries"></tbody></table></div>
+    </section>
+  </div>
+</main>
+<script>
+// Everything shown comes from the control API. Values are set with
+// textContent, never as HTML, because references and narrations are typed by
+// whoever calls the API.
+const TYPES = ['stuck_pending', 'bank_delay', 'duplicate_webhook', 'settlement_mismatch', 'late_reversal',
+  'timeout_then_success', 'missing_webhook', 'out_of_order_webhooks', 'name_enquiry_failure'];
+const naira = (kobo) => '₦' + (kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const when = (iso) => iso ? iso.replace('T', ' ').replace(/(\.\d+)?Z$/, ' UTC') : '';
+const $ = (id) => document.getElementById(id);
+
+async function call(method, path, body) {
+  const res = await fetch('/_sim' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(data?.error ? `${data.error.code}: ${data.error.message}` : `HTTP ${res.status}`);
+  return data;
+}
+
+function cell(row, value, className) {
+  const td = document.createElement('td');
+  td.textContent = value ?? '';
+  if (className) td.className = className;
+  row.appendChild(td);
+  return td;
+}
+
+function fill(tbodyId, items, columns, emptyText) {
+  const tbody = $(tbodyId);
+  tbody.replaceChildren();
+  if (!items.length) {
+    const tr = document.createElement('tr');
+    const td = cell(tr, emptyText, 'empty');
+    td.colSpan = 7;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const item of items) {
+    const tr = document.createElement('tr');
+    columns(tr, item);
+    tbody.appendChild(tr);
+  }
+}
+
+function pill(row, status) {
+  const td = cell(row, '');
+  const span = document.createElement('span');
+  span.className = 'pill ' + status;
+  span.textContent = status;
+  td.appendChild(span);
+}
+
+async function refresh() {
+  try {
+    const [state, transfers, events, deliveries] = await Promise.all([
+      call('GET', '/state'), call('GET', '/transfers'), call('GET', '/events'), call('GET', '/deliveries'),
+    ]);
+    $('now').textContent = when(state.now);
+    $('mode').textContent = state.clock === 'manual' ? 'manual: moves only when you move it' : 'real time';
+    for (const b of document.querySelectorAll('[data-advance]')) b.disabled = state.clock !== 'manual';
+    $('balance').textContent = naira(state.balance);
+    $('counts').textContent = `${state.transfers} · ${state.events}`;
+    $('scheduled').textContent = `${state.scheduled} timed task${state.scheduled === 1 ? '' : 's'} waiting`;
+
+    fill('rules', state.rules ?? [], (tr, r) => {
+      cell(tr, r.id);
+      cell(tr, r.type);
+      const m = r.match ?? {};
+      cell(tr, [m.bank_code && `bank ${m.bank_code}`, m.account_number && `account ${m.account_number}`, m.reference_prefix && `ref ${m.reference_prefix}*`].filter(Boolean).join(', ') || 'every transfer');
+      cell(tr, r.rate === 1 ? 'all' : `${Math.round(r.rate * 100)}%`);
+      const p = Object.entries(r.params ?? {}).filter(([, v]) => v !== '' && v !== 0).map(([k, v]) => `${k} ${v}`).join(', ');
+      cell(tr, p);
+      const td = cell(tr, '');
+      const button = document.createElement('button');
+      button.textContent = 'Switch off';
+      button.onclick = () => act(() => call('DELETE', '/rules/' + r.id), 'rule-error');
+      td.appendChild(button);
+    }, 'None. Every transfer behaves.');
+
+    fill('transfers', transfers.transfers.slice().reverse(), (tr, t) => {
+      cell(tr, t.id);
+      cell(tr, t.reference);
+      cell(tr, naira(t.amount));
+      cell(tr, `${t.bank_code} · ${t.account_number}${t.account_name ? ' · ' + t.account_name : ''}`);
+      pill(tr, t.status);
+      cell(tr, t.failure_reason ?? '', 'muted');
+      cell(tr, when(t.updated_at), 'muted');
+    }, 'No transfers yet. POST /v1/transfers to send one.');
+
+    fill('events', events.events.slice().reverse(), (tr, e) => {
+      cell(tr, e.id);
+      cell(tr, e.type);
+      cell(tr, e.data.reference);
+      cell(tr, when(e.created_at), 'muted');
+    }, 'No events yet.');
+
+    fill('deliveries', deliveries.deliveries.slice().reverse(), (tr, d) => {
+      cell(tr, d.event_id);
+      cell(tr, d.attempt);
+      cell(tr, d.copy);
+      cell(tr, when(d.at), 'muted');
+      cell(tr, d.error ? d.error : d.status, d.error || d.status >= 300 ? 'failed' : 'successful');
+    }, 'No webhooks sent. Set webhook.url in the scenario to send them.');
+
+    $('updated').textContent = 'live · updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    $('updated').textContent = "can't reach naira-sim: " + e.message;
+  }
+}
+
+async function act(fn, errorId) {
+  $(errorId).textContent = '';
+  try { await fn(); } catch (e) { $(errorId).textContent = e.message; }
+  await refresh();
+}
+
+for (const b of document.querySelectorAll('[data-advance]')) {
+  b.onclick = () => act(() => call('POST', '/clock/advance', { by: b.dataset.advance }), 'clock-error');
+}
+$('reset').onclick = () => act(() => call('POST', '/reset'), 'clock-error');
+
+const select = document.querySelector('select[name=type]');
+for (const t of TYPES) select.add(new Option(t, t));
+$('add-rule').onsubmit = (event) => {
+  event.preventDefault();
+  const f = new FormData(event.target);
+  act(async () => {
+    let params = {};
+    if (f.get('params').trim()) {
+      try { params = JSON.parse(f.get('params')); } catch { throw new Error('Settings must be JSON, like {"hold": "6h"}'); }
+    }
+    const rule = { type: f.get('type'), match: {}, params };
+    for (const k of ['bank_code', 'account_number', 'reference_prefix']) if (f.get(k).trim()) rule.match[k] = f.get(k).trim();
+    if (f.get('rate')) rule.rate = Number(f.get('rate'));
+    await call('POST', '/rules', rule);
+    event.target.reset();
+  }, 'rule-error');
+};
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

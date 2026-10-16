@@ -63,6 +63,10 @@ Each one can apply to every transfer, to one bank or account, to references with
 cd examples/node-backend && node --test
 ```
 
+## The dashboard
+
+Open `http://localhost:7070/_sim/` while naira-sim runs. It shows the clock, the wallet, every transfer, event and webhook attempt, updated each second, and lets you move the clock and switch failures on and off. It reads the same control API as `simctl` and loads nothing from anywhere else.
+
 ## `simctl`
 
 ```bash
